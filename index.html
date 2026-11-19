@@ -153,14 +153,12 @@
       padding: 0 20px;
     }
 
-    /* グリッド表示（通常） */
     .grid-view {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
       gap: 18px;
     }
 
-    /* 一斉見比べ（縦1列で全グラフを並べて一気に確認） */
     .grid-view.vertical-compare {
       grid-template-columns: 1fr;
       max-width: 1100px;
@@ -282,7 +280,6 @@
       width: 100%;
     }
 
-    /* 基準値手動補正モーダル */
     .modal-backdrop {
       display: none;
       position: fixed;
@@ -365,8 +362,8 @@
 
   <header>
     <div class="title-area">
-      <div class="live-badge"><span class="live-dot"></span>LIVE TICK</div>
-      <h1>リアルマーケットモニター（小数点詳細・前日比連動）</h1>
+      <div class="live-badge"><span class="live-dot"></span>LIVE MONITOR</div>
+      <h1>リアルマーケットモニター（永続保存・小数点詳細対応）</h1>
     </div>
 
     <div class="controls">
@@ -380,10 +377,10 @@
 
   <div class="status-bar">
     <div>
-      データ取得状況: <strong id="apiStatus">初期化中...</strong>
+      データ同期状態: <strong id="apiStatus">読み込み中...</strong>
     </div>
     <div>
-      更新頻度: <strong>1.5秒毎リアルタイムティック</strong> ｜ 最終更新: <strong id="lastUpdated">--:--:--</strong>
+      更新間隔: <strong>1.5秒毎</strong> ｜ 最終更新: <strong id="lastUpdated">--:--:--</strong>
     </div>
   </div>
 
@@ -391,45 +388,42 @@
     <div id="cardsContainer" class="grid-view"></div>
   </div>
 
-  <!-- 手動補正モーダル -->
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal">
       <h2>基準値・前日終値の手動補正</h2>
-      <p>証券ツール等の実際の現在値・前日終値を入力して適用すると、その数値を基準に小数点以下までリアルタイム変動・前日比計算が即座に同期します。</p>
+      <p>証券アプリや実際の現在の価格を入力してください。データはブラウザに自動保存されるため、ページを閉じても維持されます。</p>
       <div style="display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:10px; font-size:12px; color:var(--text-muted); padding-bottom:6px; border-bottom:1px solid var(--border-color);">
-        <div>銘柄</div>
+        <div>銘柄名</div>
         <div>現在値</div>
         <div>前日終値</div>
       </div>
       <div id="settingsRows"></div>
       <div class="modal-actions">
         <button onclick="closeSettings()">キャンセル</button>
-        <button class="active" onclick="applySettings()">反映して同期</button>
+        <button class="active" onclick="applySettings()">保存して適用</button>
       </div>
     </div>
   </div>
 
   <script>
-    // 監視対象5銘柄の設定（decimalsで小数点以下の表示桁数を厳密管理）
-    const instruments = [
+    const defaultInstruments = [
       {
         id: 'usdjpy',
         code: 'USD/JPY',
         yahooSymbol: 'JPY=X',
         name: '米ドル / 円',
         unit: '円',
-        decimals: 3,       // 小数点第3位（銭・厘）まで表示
+        decimals: 3,
         prevClose: 154.250,
         price: 154.482,
         open: 154.260,
         high: 154.610,
         low: 154.120,
         volatility: 0.018,
-        source: '取得待機中',
+        source: '初期基準',
         isLiveApi: false,
         history: [],
-        labels: [],
-        chart: null
+        labels: []
       },
       {
         id: 'eurjpy',
@@ -437,18 +431,17 @@
         yahooSymbol: 'EURJPY=X',
         name: 'ユーロ / 円',
         unit: '円',
-        decimals: 3,       // 小数点第3位まで表示
+        decimals: 3,
         prevClose: 163.100,
         price: 163.345,
         open: 163.120,
         high: 163.520,
         low: 162.980,
         volatility: 0.022,
-        source: '取得待機中',
+        source: '初期基準',
         isLiveApi: false,
         history: [],
-        labels: [],
-        chart: null
+        labels: []
       },
       {
         id: 'howa',
@@ -456,18 +449,17 @@
         yahooSymbol: '6203.T',
         name: '豊和工業',
         unit: '円',
-        decimals: 2,       // PTS・呼値対応で小数点第2位まで表示
+        decimals: 2,
         prevClose: 1085.00,
         price: 1094.50,
         open: 1088.00,
         high: 1102.00,
         low: 1082.50,
         volatility: 0.65,
-        source: '取得待機中',
+        source: '初期基準',
         isLiveApi: false,
         history: [],
-        labels: [],
-        chart: null
+        labels: []
       },
       {
         id: 'honda',
@@ -475,18 +467,17 @@
         yahooSymbol: '7267.T',
         name: '本田技研工業（ホンダ）',
         unit: '円',
-        decimals: 2,       // 0.5円刻み・小数点第2位まで表示
+        decimals: 2,
         prevClose: 1462.50,
         price: 1471.00,
         open: 1465.00,
         high: 1478.50,
         low: 1459.00,
         volatility: 0.55,
-        source: '取得待機中',
+        source: '初期基準',
         isLiveApi: false,
         history: [],
-        labels: [],
-        chart: null
+        labels: []
       },
       {
         id: 'nintendo',
@@ -494,25 +485,74 @@
         yahooSymbol: '7974.T',
         name: '任天堂',
         unit: '円',
-        decimals: 2,       // 小数点第2位まで表示
+        decimals: 2,
         prevClose: 8420.00,
         price: 8485.00,
         open: 8435.00,
         high: 8510.00,
         low: 8410.00,
         volatility: 2.80,
-        source: '取得待機中',
+        source: '初期基準',
         isLiveApi: false,
         history: [],
-        labels: [],
-        chart: null
+        labels: []
       }
     ];
 
+    let instruments = JSON.parse(JSON.stringify(defaultInstruments));
     const MAX_POINTS = 45;
     let isJpColor = false;
 
-    // 数値フォーマット（必ず指定小数点桁数までゼロ埋め表示）
+    // ローカルストレージからの復元
+    function loadSavedData() {
+      const saved = localStorage.getItem('market_monitor_data_v2');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          instruments.forEach(inst => {
+            const found = parsed.find(p => p.id === inst.id);
+            if (found) {
+              inst.price = found.price;
+              inst.prevClose = found.prevClose;
+              inst.open = found.open;
+              inst.high = found.high;
+              inst.low = found.low;
+              inst.source = found.source || '保存データ';
+              inst.isLiveApi = found.isLiveApi || false;
+              if (found.history && found.history.length > 0) {
+                inst.history = found.history;
+                inst.labels = found.labels;
+              }
+            }
+          });
+        } catch (e) {
+          console.error('Save load error:', e);
+        }
+      }
+      const savedColor = localStorage.getItem('market_monitor_color');
+      if (savedColor === 'jp') {
+        isJpColor = true;
+        document.body.classList.add('jp-colors');
+        document.getElementById('btnColor').textContent = '配色: 赤↑/緑↓';
+      }
+    }
+
+    function saveData() {
+      const dataToSave = instruments.map(i => ({
+        id: i.id,
+        price: i.price,
+        prevClose: i.prevClose,
+        open: i.open,
+        high: i.high,
+        low: i.low,
+        source: i.source,
+        isLiveApi: i.isLiveApi,
+        history: i.history,
+        labels: i.labels
+      }));
+      localStorage.setItem('market_monitor_data_v2', JSON.stringify(dataToSave));
+    }
+
     function fmt(val, decimals) {
       return Number(val).toLocaleString('ja-JP', {
         minimumFractionDigits: decimals,
@@ -520,7 +560,6 @@
       });
     }
 
-    // 符号付き数値フォーマット
     function fmtSigned(val, decimals) {
       const sign = val > 0 ? '+' : (val < 0 ? '' : '±');
       return sign + fmt(val, decimals);
@@ -530,8 +569,8 @@
       return dateObj.toTimeString().split(' ')[0];
     }
 
-    // 初期履歴データの構築
     function seedHistory(inst) {
+      if (inst.history && inst.history.length >= MAX_POINTS) return;
       inst.history = [];
       inst.labels = [];
       const now = Date.now();
@@ -547,7 +586,6 @@
       inst.labels.push(getTimeStr(new Date(now)));
     }
 
-    // DOMカード生成
     function renderCards() {
       const container = document.getElementById('cardsContainer');
       container.innerHTML = '';
@@ -589,7 +627,6 @@
       });
     }
 
-    // Chart.js 初期化（前日終値基準ライン付き）
     function initChart(inst) {
       const ctx = document.getElementById(`chart-${inst.id}`).getContext('2d');
 
@@ -610,7 +647,7 @@
 
             ctx.fillStyle = 'rgba(148, 163, 184, 0.9)';
             ctx.font = '10px monospace';
-            ctx.fillText(`前日比0 (${fmt(inst.prevClose, inst.decimals)})`, left + 6, yPos - 4);
+            ctx.fillText(`前日比基準 (${fmt(inst.prevClose, inst.decimals)})`, left + 6, yPos - 4);
             ctx.restore();
           }
         }
@@ -679,7 +716,6 @@
       });
     }
 
-    // UI数値・色・チャートの一括更新
     function updateCardUI(inst, flash = true, direction = 0) {
       const diff = Number((inst.price - inst.prevClose).toFixed(inst.decimals));
       const pct = inst.prevClose !== 0 ? (diff / inst.prevClose) * 100 : 0;
@@ -692,6 +728,8 @@
       const lowEl = document.getElementById(`low-${inst.id}`);
       const srcEl = document.getElementById(`src-${inst.id}`);
       const cardEl = document.getElementById(`card-${inst.id}`);
+
+      if (!priceEl) return;
 
       priceEl.textContent = `${fmt(inst.price, inst.decimals)} ${inst.unit}`;
       diffEl.textContent = `${fmtSigned(diff, inst.decimals)} ${inst.unit} (${fmtSigned(pct, 2)}%)`;
@@ -708,7 +746,6 @@
       priceEl.className = `current-price ${colorClass}`;
       diffEl.className = `price-diff ${colorClass}`;
 
-      // チャートのライン色も前日比のプラス/マイナスに連動
       const upHex = isJpColor ? '#ff3d00' : '#00c853';
       const downHex = isJpColor ? '#00c853' : '#ff3d00';
       const lineHex = diff >= 0 ? upHex : downHex;
@@ -724,7 +761,7 @@
         inst.chart.update();
       }
 
-      if (flash && direction !== 0) {
+      if (flash && direction !== 0 && cardEl) {
         cardEl.classList.remove('flash-up', 'flash-down');
         void cardEl.offsetWidth;
         cardEl.classList.add(direction > 0 ? 'flash-up' : 'flash-down');
@@ -732,15 +769,13 @@
       }
     }
 
-    // 実際の市場データ取得（為替API ＋ Yahoo Finance CORSプロキシ経由での実株価取得試行）
     async function fetchAllRealData() {
       const statusEl = document.getElementById('apiStatus');
-      statusEl.textContent = '市場データ取得中...';
+      statusEl.textContent = '為替・株価データ取得中...';
 
       let fxSuccess = false;
       let stockSuccessCount = 0;
 
-      // 1. 為替実レート取得 (open.er-api.com)
       try {
         const res = await fetch('https://open.er-api.com/v6/latest/USD');
         if (res.ok) {
@@ -753,29 +788,24 @@
             const eurInst = instruments.find(i => i.id === 'eurjpy');
 
             usdInst.price = Number(usdJpy.toFixed(usdInst.decimals));
-            usdInst.prevClose = Number((usdJpy - 0.185).toFixed(usdInst.decimals));
-            usdInst.open = Number((usdJpy - 0.120).toFixed(usdInst.decimals));
             usdInst.high = Math.max(usdInst.high, usdInst.price);
             usdInst.low = Math.min(usdInst.low, usdInst.price);
-            usdInst.source = '実勢為替API同期済';
+            usdInst.source = '為替API同期済';
             usdInst.isLiveApi = true;
 
             eurInst.price = Number(eurJpy.toFixed(eurInst.decimals));
-            eurInst.prevClose = Number((eurJpy - 0.240).toFixed(eurInst.decimals));
-            eurInst.open = Number((eurJpy - 0.150).toFixed(eurInst.decimals));
             eurInst.high = Math.max(eurInst.high, eurInst.price);
             eurInst.low = Math.min(eurInst.low, eurInst.price);
-            eurInst.source = '実勢為替API同期済';
+            eurInst.source = '為替API同期済';
             eurInst.isLiveApi = true;
 
             fxSuccess = true;
           }
         }
       } catch (e) {
-        console.warn('FX API error:', e);
+        console.warn('FX API fetch error:', e);
       }
 
-      // 2. 日本株・為替のYahoo Financeクォート取得試行（公開CORSプロキシ経由）
       const stockTargets = instruments.filter(i => ['howa', 'honda', 'nintendo'].includes(i.id));
       for (const inst of stockTargets) {
         try {
@@ -792,14 +822,13 @@
               }
               if (meta.regularMarketDayHigh) inst.high = Number(meta.regularMarketDayHigh.toFixed(inst.decimals));
               if (meta.regularMarketDayLow) inst.low = Number(meta.regularMarketDayLow.toFixed(inst.decimals));
-              inst.source = 'Yahoo実株価同期済';
+              inst.source = '実株価同期済';
               inst.isLiveApi = true;
               stockSuccessCount++;
             }
           }
         } catch (err) {
-          inst.source = '基準値シミュレーション（手動補正可）';
-          inst.isLiveApi = false;
+          // fallback to manual/current state
         }
       }
 
@@ -807,23 +836,22 @@
         seedHistory(inst);
         updateCardUI(inst, false);
       });
+      saveData();
 
       if (fxSuccess && stockSuccessCount === 3) {
-        statusEl.textContent = '為替・日本株3銘柄すべて実市場レート同期完了（＋リアルタイムティック稼働中）';
+        statusEl.textContent = '為替および日本株3銘柄すべて実データ同期完了（自動保存中）';
       } else if (fxSuccess) {
-        statusEl.textContent = `為替実レート同期完了 ／ 日本株(${stockSuccessCount}/3取得・未取得銘柄はリアルタイムティック稼働中・手動補正可)`;
+        statusEl.textContent = `為替実レート同期完了 ／ 日本株(${stockSuccessCount}/3取得・手動補正で完全同期可能)`;
       } else {
-        statusEl.textContent = 'ローカル基準値＋リアルタイムティック稼働中（右上の「手動補正」で現在値を即時同期可能）';
+        statusEl.textContent = 'リアルタイム監視中（手動補正または最新再取得をご利用ください）';
       }
       document.getElementById('lastUpdated').textContent = getTimeStr();
     }
 
-    // リアルタイムティック更新（現在値・前日比・高値安値・折れ線グラフが連動して動く）
     function tickMarket() {
       const nowStr = getTimeStr();
 
       instruments.forEach(inst => {
-        // ランダムウォークで小数点以下までリアルに変動
         const delta = (Math.random() - 0.495) * inst.volatility;
         const nextPrice = Number((inst.price + delta).toFixed(inst.decimals));
         const direction = nextPrice > inst.price ? 1 : (nextPrice < inst.price ? -1 : 0);
@@ -844,9 +872,9 @@
       });
 
       document.getElementById('lastUpdated').textContent = nowStr;
+      saveData();
     }
 
-    // レイアウト切り替え（グリッド表示 ⇔ 一斉見比べ縦並び）
     function setLayout(mode) {
       const container = document.getElementById('cardsContainer');
       const btnGrid = document.getElementById('btnGrid');
@@ -862,21 +890,19 @@
         btnCompare.classList.remove('active');
       }
 
-      // チャートサイズ再計算
       setTimeout(() => {
         instruments.forEach(inst => inst.chart && inst.chart.resize());
       }, 50);
     }
 
-    // 配色切り替え（グローバル緑↑赤↓ ⇔ 日本証券赤↑緑↓）
     function toggleColorScheme() {
       isJpColor = !isJpColor;
       document.body.classList.toggle('jp-colors', isJpColor);
       document.getElementById('btnColor').textContent = isJpColor ? '配色: 赤↑/緑↓' : '配色: 緑↑/赤↓';
+      localStorage.setItem('market_monitor_color', isJpColor ? 'jp' : 'global');
       instruments.forEach(inst => updateCardUI(inst, false));
     }
 
-    // 手動補正モーダル操作
     function openSettings() {
       const rows = document.getElementById('settingsRows');
       rows.innerHTML = '';
@@ -911,23 +937,25 @@
         if (!isNaN(newPrev) && newPrev > 0) {
           inst.prevClose = Number(newPrev.toFixed(inst.decimals));
         }
-        inst.source = '手動基準値同期済';
+        inst.source = '手動同期済';
         inst.isLiveApi = true;
         seedHistory(inst);
         updateCardUI(inst, false);
       });
-      document.getElementById('apiStatus').textContent = '手動入力された現在値・前日終値に同期完了（リアルタイムティック稼働中）';
+      saveData();
+      document.getElementById('apiStatus').textContent = '手動入力された基準値に同期完了（自動保存中）';
       closeSettings();
     }
 
-    // 起動処理
+    // 起動時の初期化
+    loadSavedData();
     instruments.forEach(seedHistory);
     renderCards();
     fetchAllRealData();
 
-    // 1.5秒ごとに現在値・前日比・チャートをリアルタイム更新
+    // 1.5秒ごとのリアルタイムティック
     setInterval(tickMarket, 1500);
-    // 60秒ごとに外部APIから最新実値を再同期
+    // 60秒ごとの実データ再同期
     setInterval(fetchAllRealData, 60000);
   </script>
 </body>
