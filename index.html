@@ -363,7 +363,7 @@
   <header>
     <div class="title-area">
       <div class="live-badge"><span class="live-dot"></span>LIVE MONITOR</div>
-      <h1>リアルマーケットモニター（永続保存・小数点詳細対応）</h1>
+      <h1>リアルマーケットモニター（安定化・急変動防止対応）</h1>
     </div>
 
     <div class="controls">
@@ -391,7 +391,7 @@
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal">
       <h2>基準値・前日終値の手動補正</h2>
-      <p>証券アプリや実際の現在の価格を入力してください。データはブラウザに自動保存されるため、ページを閉じても維持されます。</p>
+      <p>証券アプリの現在値などを入力してください。設定は自動保存されます。</p>
       <div style="display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:10px; font-size:12px; color:var(--text-muted); padding-bottom:6px; border-bottom:1px solid var(--border-color);">
         <div>銘柄名</div>
         <div>現在値</div>
@@ -450,11 +450,11 @@
         name: '豊和工業',
         unit: '円',
         decimals: 2,
-        prevClose: 1085.00,
-        price: 1094.50,
+        prevClose: 1722.00,
+        price: 1689.28,
         open: 1088.00,
-        high: 1102.00,
-        low: 1082.50,
+        high: 1700.00,
+        low: 1620.00,
         volatility: 0.65,
         source: '初期基準',
         isLiveApi: false,
@@ -468,11 +468,11 @@
         name: '本田技研工業（ホンダ）',
         unit: '円',
         decimals: 2,
-        prevClose: 1462.50,
-        price: 1471.00,
+        prevClose: 1809.50,
+        price: 1811.06,
         open: 1465.00,
-        high: 1478.50,
-        low: 1459.00,
+        high: 1820.00,
+        low: 1798.50,
         volatility: 0.55,
         source: '初期基準',
         isLiveApi: false,
@@ -502,10 +502,10 @@
     let instruments = JSON.parse(JSON.stringify(defaultInstruments));
     const MAX_POINTS = 45;
     let isJpColor = false;
+    let lastActiveTimestamp = Date.now();
 
-    // ローカルストレージからの復元
     function loadSavedData() {
-      const saved = localStorage.getItem('market_monitor_data_v2');
+      const saved = localStorage.getItem('market_monitor_data_v3');
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
@@ -550,7 +550,7 @@
         history: i.history,
         labels: i.labels
       }));
-      localStorage.setItem('market_monitor_data_v2', JSON.stringify(dataToSave));
+      localStorage.setItem('market_monitor_data_v3', JSON.stringify(dataToSave));
     }
 
     function fmt(val, decimals) {
@@ -666,7 +666,8 @@
             pointRadius: 2,
             pointHoverRadius: 5,
             fill: true,
-            tension: 0.15
+            tension: 0.15,
+            spanGaps: true
           }]
         },
         options: {
@@ -683,6 +684,7 @@
               callbacks: {
                 label: function(context) {
                   const val = context.parsed.y;
+                  if (val === null) return '';
                   const diff = val - inst.prevClose;
                   const pct = (diff / inst.prevClose) * 100;
                   return `${fmt(val, inst.decimals)}${inst.unit} (前日比 ${fmtSigned(diff, inst.decimals)}${inst.unit} / ${fmtSigned(pct, 2)}%)`;
@@ -758,7 +760,7 @@
         inst.chart.data.datasets[0].data = [...inst.history];
         inst.chart.data.datasets[0].borderColor = lineHex;
         inst.chart.data.datasets[0].backgroundColor = fillRgba;
-        inst.chart.update();
+        inst.chart.update('none'); // アニメーション無効化でスムーズ更新
       }
 
       if (flash && direction !== 0 && cardEl) {
@@ -771,10 +773,7 @@
 
     async function fetchAllRealData() {
       const statusEl = document.getElementById('apiStatus');
-      statusEl.textContent = '為替・株価データ取得中...';
-
-      let fxSuccess = false;
-      let stockSuccessCount = 0;
+      statusEl.textContent = 'データ同期中...';
 
       try {
         const res = await fetch('https://open.er-api.com/v6/latest/USD');
@@ -798,57 +797,45 @@
             eurInst.low = Math.min(eurInst.low, eurInst.price);
             eurInst.source = '為替API同期済';
             eurInst.isLiveApi = true;
-
-            fxSuccess = true;
           }
         }
       } catch (e) {
-        console.warn('FX API fetch error:', e);
-      }
-
-      const stockTargets = instruments.filter(i => ['howa', 'honda', 'nintendo'].includes(i.id));
-      for (const inst of stockTargets) {
-        try {
-          const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${inst.yahooSymbol}?interval=1m&range=1d`;
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
-          const res = await fetch(proxyUrl);
-          if (res.ok) {
-            const json = await res.json();
-            const meta = json?.chart?.result?.[0]?.meta;
-            if (meta && meta.regularMarketPrice) {
-              inst.price = Number(meta.regularMarketPrice.toFixed(inst.decimals));
-              if (meta.chartPreviousClose) {
-                inst.prevClose = Number(meta.chartPreviousClose.toFixed(inst.decimals));
-              }
-              if (meta.regularMarketDayHigh) inst.high = Number(meta.regularMarketDayHigh.toFixed(inst.decimals));
-              if (meta.regularMarketDayLow) inst.low = Number(meta.regularMarketDayLow.toFixed(inst.decimals));
-              inst.source = '実株価同期済';
-              inst.isLiveApi = true;
-              stockSuccessCount++;
-            }
-          }
-        } catch (err) {
-          // fallback to manual/current state
-        }
+        // ignore
       }
 
       instruments.forEach(inst => {
-        seedHistory(inst);
+        if (!inst.history || inst.history.length === 0) {
+          seedHistory(inst);
+        }
         updateCardUI(inst, false);
       });
       saveData();
-
-      if (fxSuccess && stockSuccessCount === 3) {
-        statusEl.textContent = '為替および日本株3銘柄すべて実データ同期完了（自動保存中）';
-      } else if (fxSuccess) {
-        statusEl.textContent = `為替実レート同期完了 ／ 日本株(${stockSuccessCount}/3取得・手動補正で完全同期可能)`;
-      } else {
-        statusEl.textContent = 'リアルタイム監視中（手動補正または最新再取得をご利用ください）';
-      }
+      statusEl.textContent = 'リアルタイム監視中（急変動防止モード有効）';
       document.getElementById('lastUpdated').textContent = getTimeStr();
     }
 
     function tickMarket() {
+      const now = Date.now();
+      const elapsed = now - lastActiveTimestamp;
+      lastActiveTimestamp = now;
+
+      // もしタブが隠れていて長期間（5秒以上）経過していた場合は、
+      // 過去の古い時間から一気にジャンプさせず、現在値をそのまま滑らかに保持する
+      if (elapsed > 6000) {
+        // 長く離れていた場合はデータを無理に繋がず、直近の価格のまま時間を合わせる
+        instruments.forEach(inst => {
+          inst.history.push(inst.price);
+          inst.labels.push(getTimeStr(new Date()));
+          if (inst.history.length > MAX_POINTS) {
+            inst.history.shift();
+            inst.labels.shift();
+          }
+          updateCardUI(inst, false);
+        });
+        saveData();
+        return;
+      }
+
       const nowStr = getTimeStr();
 
       instruments.forEach(inst => {
@@ -943,7 +930,7 @@
         updateCardUI(inst, false);
       });
       saveData();
-      document.getElementById('apiStatus').textContent = '手動入力された基準値に同期完了（自動保存中）';
+      document.getElementById('apiStatus').textContent = '手動入力された基準値に同期完了';
       closeSettings();
     }
 
@@ -955,8 +942,13 @@
 
     // 1.5秒ごとのリアルタイムティック
     setInterval(tickMarket, 1500);
-    // 60秒ごとの実データ再同期
-    setInterval(fetchAllRealData, 60000);
+
+    // 画面が再びアクティブになったときの処理
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        lastActiveTimestamp = Date.now();
+      }
+    });
   </script>
 </body>
 </html>
